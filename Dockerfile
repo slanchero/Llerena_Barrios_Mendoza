@@ -15,4 +15,6 @@
 # CMD ["python", "./generador.py"]
 FROM python:3.12-bookworm
 WORKDIR /app
+COPY generador.py /app
+COPY requirements.txt /app
 RUN pip install networkx
