@@ -1,4 +1,5 @@
 import os
+import timeit
 import json
 import shutil
 import bz2
@@ -24,11 +25,54 @@ def descomprimir_archivo(file_path, output_directory):
             output_file.write(data)
 
 
+def crear_grafo_retweets(tweets):
+    G = nx.DiGraph()
 
+    for tweet in tweets:
+        # Suponiendo que "user" es el usuario que hace el retweet y "retweeted_status" es el tweet original
+        if 'retweeted_status' in tweet:
+            retweeter_id = tweet['user']['screen_name']
+            retweeted_id = tweet['retweeted_status']['user']['screen_name']
+
+            # Añadir nodos
+            G.add_node(retweeter_id)
+            G.add_node(retweeted_id)
+
+            # Añadir arista
+            G.add_edge(retweeter_id, retweeted_id)
+
+    return G
+
+def crear_json_retweets(tweets):
+    retweets_info = defaultdict(lambda: {'receivedRetweets': 0, 'tweets': defaultdict(list)})
+
+    for tweet in tweets:
+        if 'retweeted_status' in tweet:
+            original_user = tweet['retweeted_status']['user']['screen_name']
+            original_tweet_id = tweet['retweeted_status']['id_str']
+            retweeter = tweet['user']['screen_name']
+
+            retweets_info[original_user]['tweets'][original_tweet_id].append(retweeter)
+            retweets_info[original_user]['receivedRetweets'] += 1
+
+    # Ordenar por número total de retweets recibidos
+    sorted_retweets = sorted(retweets_info.items(), key=lambda x: x[1]['receivedRetweets'], reverse=True)
+
+    # Crear la estructura final del JSON
+    final_structure = {'retweets': [{'username': user, **data} for user, data in sorted_retweets]}
+
+    return final_structure
 
 def descomprimir_tweets(directory, start_date_str, end_date_str, output_base_directory):
     start_date = datetime.strptime(start_date_str, "%d-%m-%y")
     end_date = datetime.strptime(end_date_str, "%d-%m-%y")
+
+    tweets=[]
+
+    # Crear directorio de salida basado en la fecha y hora
+    output_directory = os.path.join(output_base_directory)
+    if not os.path.exists(output_directory):
+        os.makedirs(output_directory)
 
     for year in os.listdir(directory):
         year_path = os.path.join(directory, year)
@@ -44,15 +88,21 @@ def descomprimir_tweets(directory, start_date_str, end_date_str, output_base_dir
                                 if os.path.isdir(hour_path):
                                     current_date = datetime(year=int(year), month=int(month), day=int(day))
                                     if start_date <= current_date <= end_date:
-                                        # Crear directorio de salida basado en la fecha y hora
-                                        output_directory = os.path.join(output_base_directory, year, month, day, hour)
-                                        if not os.path.exists(output_directory):
-                                            os.makedirs(output_directory)
-
                                         for file in os.listdir(hour_path):
                                             if file.endswith('.bz2'):
                                                 file_path = os.path.join(hour_path, file)
-                                                descomprimir_archivo(file_path, output_directory)
+                                                #descomprimir_archivo(file_path, output_directory)
+                                                with bz2.BZ2File(file_path, 'rb') as f:
+                                                    for line in f:
+                                                        tweet = json.loads(line)
+                                                        tweets.append(tweet)
+    #print(tweets[:3])
+    grafo_retweets=crear_grafo_retweets(tweets)
+    nx.write_gexf(grafo_retweets, 'rt.gexf')
+    retweets_json = crear_json_retweets(tweets)
+    with open('rt.json', 'w') as file:
+        json.dump(retweets_json, file, indent=4)
+
 
 def main(argv):
     # Valores por defecto
@@ -60,8 +110,6 @@ def main(argv):
     start_date = None
     end_date = None
     hashtag_file = None
-
-    # print(argv)
 
     try:
         opts,args=getopt.getopt(argv,"d:h:",["fi=","ff="])
@@ -95,4 +143,7 @@ def main(argv):
 
 
 if __name__ == "__main__":
+   initialTime = timeit.default_timer()
    main(sys.argv[1:])
+   finalTime = timeit.default_timer()
+   print(f"Total execution time: {finalTime - initialTime} seconds")
