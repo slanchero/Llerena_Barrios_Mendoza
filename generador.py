@@ -24,7 +24,7 @@ def descomprimir_archivo(file_path, output_directory):
         with open(output_file_path, 'wb') as output_file:
             output_file.write(data)
 
-
+#--------------Retweets----------------------------------------------
 def crear_grafo_retweets(tweets):
     G = nx.DiGraph()
 
@@ -59,10 +59,49 @@ def crear_json_retweets(tweets):
     sorted_retweets = sorted(retweets_info.items(), key=lambda x: x[1]['receivedRetweets'], reverse=True)
 
     # Crear la estructura final del JSON
-    final_structure = {'retweets': [{'username': user, **data} for user, data in sorted_retweets]}
+    json = {'retweets': [{'username': user, **data} for user, data in sorted_retweets]}
 
-    return final_structure
+    return json
 
+#-------Menciones------------------------------------
+def crear_grafo_menciones(tweets):
+    G = nx.DiGraph()
+
+    for tweet in tweets:
+        if 'entities' in tweet and 'user_mentions' in tweet['entities']:
+            mencionante_id = tweet['user']['id']
+            G.add_node(mencionante_id)
+
+            for mencionado in tweet['entities']['user_mentions']:
+                mencionado_id = mencionado['id']
+                G.add_node(mencionado_id)
+                G.add_edge(mencionante_id, mencionado_id)
+
+    return G
+
+
+def crear_json_menciones(tweets):
+    menciones_info = defaultdict(lambda: {'receivedMentions': 0, 'mentions': defaultdict(list)})
+
+    for tweet in tweets:
+        if 'entities' in tweet and 'user_mentions' in tweet['entities']:
+            tweet_id = tweet['id_str']
+            for mencionado in tweet['entities']['user_mentions']:
+                mencionado_nombre = mencionado['screen_name']
+                mencionante_nombre = tweet['user']['screen_name']
+
+                menciones_info[mencionado_nombre]['mentions'][mencionante_nombre].append(tweet_id)
+                menciones_info[mencionado_nombre]['receivedMentions'] += 1
+
+    # Ordenar por número total de menciones recibidas
+    sorted_menciones = sorted(menciones_info.items(), key=lambda x: x[1]['receivedMentions'], reverse=True)
+
+    # Crear la estructura final del JSON
+    json = {'mentions': [{'username': user, **data} for user, data in sorted_menciones]}
+
+    return json
+
+#------Descomprimir archivos-------
 def descomprimir_tweets(directory, start_date_str, end_date_str, output_base_directory):
     start_date = datetime.strptime(start_date_str, "%d-%m-%y")
     end_date = datetime.strptime(end_date_str, "%d-%m-%y")
@@ -102,6 +141,12 @@ def descomprimir_tweets(directory, start_date_str, end_date_str, output_base_dir
     retweets_json = crear_json_retweets(tweets)
     with open('rt.json', 'w') as file:
         json.dump(retweets_json, file, indent=4)
+    grafo_menciones = crear_grafo_menciones(tweets)
+    nx.write_gexf(grafo_menciones, 'mencion.gexf')
+    menciones_json = crear_json_menciones(tweets)
+    with open('mencion.json', 'w') as file:
+        json.dump(menciones_json, file, indent=4)
+    
 
 
 def main(argv):
