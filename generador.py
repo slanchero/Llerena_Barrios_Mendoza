@@ -5,7 +5,7 @@ import shutil
 import bz2
 import getopt
 import networkx as nx
-from collections import defaultdict
+from collections import defaultdict,Counter
 import sys
 from datetime import datetime
 
@@ -79,27 +79,37 @@ def crear_grafo_menciones(tweets):
 
     return G
 
-
 def crear_json_menciones(tweets):
-    menciones_info = defaultdict(lambda: {'receivedMentions': 0, 'mentions': defaultdict(list)})
+    menciones_info = defaultdict(lambda: {'mentionBy': defaultdict(int), 'tweets': []})
 
     for tweet in tweets:
         if 'entities' in tweet and 'user_mentions' in tweet['entities']:
             tweet_id = tweet['id_str']
+            mencionante = tweet['user']['screen_name']
+
             for mencionado in tweet['entities']['user_mentions']:
                 mencionado_nombre = mencionado['screen_name']
-                mencionante_nombre = tweet['user']['screen_name']
+                menciones_info[mencionado_nombre]['mentionBy'][mencionante] += 1
+                menciones_info[mencionado_nombre]['tweets'].append(tweet_id)
 
-                menciones_info[mencionado_nombre]['mentions'][mencionante_nombre].append(tweet_id)
-                menciones_info[mencionado_nombre]['receivedMentions'] += 1
+    # Preparar la estructura final del JSON
+    final_structure = {'mentions': []}
+    for username, data in menciones_info.items():
+        mention_list = []
+        for mentioner, count in data['mentionBy'].items():
+            mention_list.append({'mentionBy': mentioner, 'tweets': list(set(data['tweets']))})
+
+        final_structure['mentions'].append({
+            'username': username,
+            'receivedMentions': sum(data['mentionBy'].values()),
+            'mentions': mention_list
+        })
 
     # Ordenar por número total de menciones recibidas
-    sorted_menciones = sorted(menciones_info.items(), key=lambda x: x[1]['receivedMentions'], reverse=True)
+    final_structure['mentions'].sort(key=lambda x: x['receivedMentions'], reverse=True)
 
-    # Crear la estructura final del JSON
-    json = {'mentions': [{'username': user, **data} for user, data in sorted_menciones]}
+    return final_structure
 
-    return json
 
 #------Descomprimir archivos-------
 def descomprimir_tweets(directory, start_date_str, end_date_str, output_base_directory):
