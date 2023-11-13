@@ -166,7 +166,45 @@ def descomprimir_tweets(directory, start_date_str, end_date_str, output_base_dir
     with open('mencion.json', 'w') as file:
         json.dump(menciones_json, file, indent=4)
     
+def crear_grafo_corretweets(tweets):
+    G = nx.Graph()  # Usar un grafo no dirigido
 
+    retweet_pairs = defaultdict(set)  # Para almacenar pares de autores retuiteados por el mismo usuario
+
+    for tweet in tweets:
+        if 'retweeted_status' in tweet:
+            retweeter = tweet['user']['screen_name']
+            original_author = tweet['retweeted_status']['user']['screen_name']
+
+            # Agregar este autor al conjunto de autores retuiteados por el retweeter
+            retweet_pairs[retweeter].add(original_author)
+
+    # Crear aristas entre todos los pares de autores retuiteados por el mismo usuario
+    for retweeter, authors in retweet_pairs.items():
+        for author1 in authors:
+            for author2 in authors:
+                if author1 != author2:
+                    G.add_edge(author1, author2)
+
+    return G
+
+def crear_json_corretweets(tweets):
+    co_retweets_info = defaultdict(lambda: defaultdict(set))
+
+    for tweet in tweets:
+        if 'retweeted_status' in tweet:
+            retweeter = tweet['user']['screen_name']
+            original_author = tweet['retweeted_status']['user']['screen_name']
+
+            # Para cada autor, añadir el retweeter a la lista de co-retweeters de otros autores
+            for other_author in co_retweets_info[original_author].keys():
+                co_retweets_info[original_author][other_author].add(retweeter)
+                co_retweets_info[other_author][original_author].add(retweeter)
+
+    # Convertir sets a listas para la serialización JSON
+    json_structure = {author: {other_author: list(retweeters) for other_author, retweeters in others.items()} for author, others in co_retweets_info.items()}
+
+    return json_structure
 
 def main(argv):
     # Valores por defecto
@@ -174,7 +212,7 @@ def main(argv):
     start_date = None
     end_date = None
     hashtag_file = None
-
+    
     try:
         opts,args=getopt.getopt(argv,"d:h:",["fi=","ff="])
     except getopt.GetoptError as err:
