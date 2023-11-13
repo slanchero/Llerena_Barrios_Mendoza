@@ -5,7 +5,7 @@ import shutil
 import bz2
 import getopt
 import networkx as nx
-from collections import defaultdict,Counter
+from collections import defaultdict
 import sys
 from datetime import datetime
 
@@ -52,16 +52,25 @@ def crear_json_retweets(tweets):
             original_tweet_id = tweet['retweeted_status']['id_str']
             retweeter = tweet['user']['screen_name']
 
+            # Almacenar la información del retweet
             retweets_info[original_user]['tweets'][original_tweet_id].append(retweeter)
             retweets_info[original_user]['receivedRetweets'] += 1
 
     # Ordenar por número total de retweets recibidos
     sorted_retweets = sorted(retweets_info.items(), key=lambda x: x[1]['receivedRetweets'], reverse=True)
 
-    # Crear la estructura final del JSON
-    json = {'retweets': [{'username': user, **data} for user, data in sorted_retweets]}
+    # Construir la estructura final del JSON
+    json_structure = {'retweets': []}
+    for user, data in sorted_retweets:
+        tweets_data = [{'tweetId: ' + tweet_id: {'retweetedBy': retweeters} for tweet_id, retweeters in data['tweets'].items()}]
+        json_structure['retweets'].append({
+            'username': user,
+            'receivedRetweets': data['receivedRetweets'],
+            'tweets': tweets_data
+        })
 
-    return json
+    return json_structure
+
 
 #-------Menciones------------------------------------
 def crear_grafo_menciones(tweets):
