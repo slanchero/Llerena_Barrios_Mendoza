@@ -119,6 +119,60 @@ def crear_json_menciones(tweets):
 
     return final_structure
 
+#-----Co-Retweet-----------------
+def crear_grafo_corretweets(tweets):
+    G = nx.Graph()  # Usar un grafo no dirigido
+
+    retweet_pairs = defaultdict(set)  # Para almacenar pares de autores retuiteados por el mismo usuario
+
+    for tweet in tweets:
+        if 'retweeted_status' in tweet:
+            retweeter = tweet['user']['screen_name']
+            original_author = tweet['retweeted_status']['user']['screen_name']
+
+            # Agregar este autor al conjunto de autores retuiteados por el retweeter
+            retweet_pairs[retweeter].add(original_author)
+
+    # Crear aristas entre todos los pares de autores retuiteados por el mismo usuario
+    for retweeter, authors in retweet_pairs.items():
+        for author1 in authors:
+            for author2 in authors:
+                if author1 != author2:
+                    G.add_edge(author1, author2)
+
+    return G
+
+def crear_json_corretweets(tweets):
+    # Recopilar información sobre quién retwitteó a quién
+    retweeters_por_autor = defaultdict(set)
+    for tweet in tweets:
+        if 'retweeted_status' in tweet:
+            autor_original = tweet['retweeted_status']['user']['screen_name']
+            retweeter = tweet['user']['screen_name']
+            retweeters_por_autor[autor_original].add(retweeter)
+
+    # Identificar co-retweets
+    co_retweets = defaultdict(lambda: {'retweeters': set(), 'totalCoretweets': 0})
+    autores = list(retweeters_por_autor.keys())
+    for i in range(len(autores)):
+        for j in range(i + 1, len(autores)):
+            autor1, autor2 = autores[i], autores[j]
+            co_retweeters = retweeters_por_autor[autor1].intersection(retweeters_por_autor[autor2])
+            if co_retweeters:
+                co_retweets[(autor1, autor2)]['retweeters'] = co_retweeters
+                co_retweets[(autor1, autor2)]['totalCoretweets'] = len(co_retweeters)
+
+    # Construir la estructura del JSON
+    json_structure = {'coretweets': []}
+    for authors, data in co_retweets.items():
+        json_structure['coretweets'].append({
+            'authors': {'u1': authors[0], 'u2': authors[1]},
+            'totalCoretweets': data['totalCoretweets'],
+            'retweeters': list(data['retweeters'])
+        })
+
+    return json_structure
+
 
 #------Descomprimir archivos-------
 def descomprimir_tweets(directory, start_date_str, end_date_str, output_base_directory):
@@ -165,46 +219,11 @@ def descomprimir_tweets(directory, start_date_str, end_date_str, output_base_dir
     menciones_json = crear_json_menciones(tweets)
     with open('mencion.json', 'w') as file:
         json.dump(menciones_json, file, indent=4)
-    
-def crear_grafo_corretweets(tweets):
-    G = nx.Graph()  # Usar un grafo no dirigido
-
-    retweet_pairs = defaultdict(set)  # Para almacenar pares de autores retuiteados por el mismo usuario
-
-    for tweet in tweets:
-        if 'retweeted_status' in tweet:
-            retweeter = tweet['user']['screen_name']
-            original_author = tweet['retweeted_status']['user']['screen_name']
-
-            # Agregar este autor al conjunto de autores retuiteados por el retweeter
-            retweet_pairs[retweeter].add(original_author)
-
-    # Crear aristas entre todos los pares de autores retuiteados por el mismo usuario
-    for retweeter, authors in retweet_pairs.items():
-        for author1 in authors:
-            for author2 in authors:
-                if author1 != author2:
-                    G.add_edge(author1, author2)
-
-    return G
-
-def crear_json_corretweets(tweets):
-    co_retweets_info = defaultdict(lambda: defaultdict(set))
-
-    for tweet in tweets:
-        if 'retweeted_status' in tweet:
-            retweeter = tweet['user']['screen_name']
-            original_author = tweet['retweeted_status']['user']['screen_name']
-
-            # Para cada autor, añadir el retweeter a la lista de co-retweeters de otros autores
-            for other_author in co_retweets_info[original_author].keys():
-                co_retweets_info[original_author][other_author].add(retweeter)
-                co_retweets_info[other_author][original_author].add(retweeter)
-
-    # Convertir sets a listas para la serialización JSON
-    json_structure = {author: {other_author: list(retweeters) for other_author, retweeters in others.items()} for author, others in co_retweets_info.items()}
-
-    return json_structure
+        grafo_co_retweet = crear_grafo_corretweets(tweets)
+    nx.write_gexf(grafo_co_retweet, 'corrtw.gexf')
+    co_retweet_json = crear_json_corretweets(tweets)
+    with open('corrtw.json', 'w') as file:
+        json.dump(co_retweet_json, file, indent=4)
 
 def main(argv):
     # Valores por defecto
