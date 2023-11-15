@@ -11,7 +11,7 @@ from datetime import datetime
 
 
 
-def procesar_tweets(tweets):
+def procesar_tweets(tweets,grt, jrt, gm, jm, gcrt, jcrt):
     # Inicialización de grafos y estructuras de datos para JSON
     grafo_retweets = nx.DiGraph()
     retweets_info = defaultdict(lambda: {'receivedRetweets': 0, 'tweets': defaultdict(list)})
@@ -25,59 +25,68 @@ def procesar_tweets(tweets):
     # Procesar cada tweet
     for tweet in tweets:
         # Procesamiento para retweets
-        if 'retweeted_status' in tweet:
-            retweeter_screen_name = tweet['user']['screen_name']
-            retweeted_screen_name = tweet['retweeted_status']['user']['screen_name']
+        if grt or jrt:
+            if 'retweeted_status' in tweet:
+                retweeter_screen_name = tweet['user']['screen_name']
+                retweeted_screen_name = tweet['retweeted_status']['user']['screen_name']
 
-            grafo_retweets.add_node(retweeter_screen_name)
-            grafo_retweets.add_node(retweeted_screen_name)
-            grafo_retweets.add_edge(retweeter_screen_name, retweeted_screen_name)
+                grafo_retweets.add_node(retweeter_screen_name)
+                grafo_retweets.add_node(retweeted_screen_name)
+                grafo_retweets.add_edge(retweeter_screen_name, retweeted_screen_name)
 
-            retweets_info[retweeted_screen_name]['tweets'][tweet['retweeted_status']['id_str']].append(retweeter_screen_name)
-            retweets_info[retweeted_screen_name]['receivedRetweets'] += 1
+                retweets_info[retweeted_screen_name]['tweets'][tweet['retweeted_status']['id_str']].append(retweeter_screen_name)
+                retweets_info[retweeted_screen_name]['receivedRetweets'] += 1
 
         # Procesamiento para menciones
-        if 'entities' in tweet and 'user_mentions' in tweet['entities']:
-            mencionante_screen_name = tweet['user']['screen_name']
-            mencionante_id = tweet['user']['id']
+        if gm or jm:
+            if 'entities' in tweet and 'user_mentions' in tweet['entities']:
+                mencionante_screen_name = tweet['user']['screen_name']
+                mencionante_id = tweet['user']['id']
 
-            grafo_menciones.add_node(mencionante_id)
+                grafo_menciones.add_node(mencionante_id)
 
-            for mencionado in tweet['entities']['user_mentions']:
-                mencionado_screen_name = mencionado['screen_name']
-                mencionado_id = mencionado['id']
+                for mencionado in tweet['entities']['user_mentions']:
+                    mencionado_screen_name = mencionado['screen_name']
+                    mencionado_id = mencionado['id']
 
-                grafo_menciones.add_node(mencionado_id)
-                grafo_menciones.add_edge(mencionante_id, mencionado_id)
+                    grafo_menciones.add_node(mencionado_id)
+                    grafo_menciones.add_edge(mencionante_id, mencionado_id)
 
-                menciones_info[mencionado_screen_name]['mentionBy'][mencionante_screen_name] += 1
-                menciones_info[mencionado_screen_name]['tweets'].append(tweet['id_str'])
+                    menciones_info[mencionado_screen_name]['mentionBy'][mencionante_screen_name] += 1
+                    menciones_info[mencionado_screen_name]['tweets'].append(tweet['id_str'])
 
         # Procesamiento para co-retweets
-        if 'retweeted_status' in tweet:
-            retweeter_screen_name = tweet['user']['screen_name']
-            retweeted_screen_name = tweet['retweeted_status']['user']['screen_name']
+        if gcrt or jcrt:
+            if 'retweeted_status' in tweet:
+                retweeter_screen_name = tweet['user']['screen_name']
+                retweeted_screen_name = tweet['retweeted_status']['user']['screen_name']
 
-            retweeters_por_autor[retweeted_screen_name].add(retweeter_screen_name)
+                retweeters_por_autor[retweeted_screen_name].add(retweeter_screen_name)
     
-    for autor in retweeters_por_autor:
-        for otro_autor in retweeters_por_autor:
-            if autor != otro_autor:
-                co_retweeters = retweeters_por_autor[autor].intersection(retweeters_por_autor[otro_autor])
-                if co_retweeters:
-                    grafo_corretweets.add_edge(autor, otro_autor, weight=len(co_retweeters))
+    if gcrt or jcrt:
+        for autor in retweeters_por_autor:
+            for otro_autor in retweeters_por_autor:
+                if autor != otro_autor:
+                    co_retweeters = retweeters_por_autor[autor].intersection(retweeters_por_autor[otro_autor])
+                    if co_retweeters:
+                        grafo_corretweets.add_edge(autor, otro_autor, weight=len(co_retweeters))
 
 
-    # Finalizar JSON de retweets
-    retweets_json = finalizar_json_retweets(retweets_info)
+    resultados = {}
+    if grt:
+        resultados['grafo_retweets'] = grafo_retweets
+    if jrt:
+        resultados['retweets_json'] = finalizar_json_retweets(retweets_info)
+    if gm:
+        resultados['grafo_menciones'] = grafo_menciones
+    if jm:
+        resultados['menciones_json'] = finalizar_json_menciones(menciones_info)
+    if gcrt:
+        resultados['grafo_corretweets'] = grafo_corretweets
+    if jcrt:
+        resultados['corretweets_json'] = finalizar_json_corretweets(retweeters_por_autor)
 
-    # Finalizar JSON de menciones
-    menciones_json = finalizar_json_menciones(menciones_info)
-
-    # Finalizar JSON de co-retweets
-    corretweets_json = finalizar_json_corretweets(retweeters_por_autor)
-
-    return grafo_retweets, retweets_json, grafo_menciones, menciones_json, grafo_corretweets, corretweets_json
+    return resultados
 
 def finalizar_json_retweets(retweets_info):
     sorted_retweets = sorted(retweets_info.items(), key=lambda x: x[1]['receivedRetweets'], reverse=True)
@@ -159,9 +168,10 @@ def main(argv):
     start_date = None
     end_date = None
     hashtag_file = None
+    grt, jrt, gm, jm, gcrt, jcrt = False, False, False, False, False, False
     
     try:
-        opts,args=getopt.getopt(argv,"d:h:",["fi=","ff="])
+        opts,args=getopt.getopt(argv,"d:h:",["fi=","ff=","grt","jrt","gm","jm","gcrt","jcrt"])
     except getopt.GetoptError as err:
         print(err)
         print('Uso: generador.py -d <path> --fi=<fecha inicial> --ff=<fecha final> -h <archivo de hashtags>')
@@ -176,22 +186,43 @@ def main(argv):
             end_date = arg
         elif opt == "-h":
             hashtag_file = arg
+        elif opt == "--grt":
+            grt = True
+        elif opt == "--jrt":
+            jrt = True
+        elif opt == "--gm":
+            gm = True
+        elif opt == "--jm":
+            jm = True
+        elif opt == "--gcrt":
+            gcrt = True
+        elif opt == "--jcrt":
+            jcrt = True
 
     tweets=descomprimir_tweets(directory,start_date,end_date,hashtag_file)
 
-    grafo_retweets, retweets_json, grafo_menciones, menciones_json, grafo_corretweets, corretweets_json=procesar_tweets(tweets)
+    resultados=procesar_tweets(tweets,grt,jrt,gm,jm,gcrt,jcrt)
 
-    nx.write_gexf(grafo_retweets, 'rt.gexf')
-    with open('rt.json', 'w') as file:
-        json.dump(retweets_json, file, indent=4)
+    if 'grafo_retweets' in resultados:
+        nx.write_gexf(resultados['grafo_retweets'], 'rt.gexf')
 
-    nx.write_gexf(grafo_menciones, 'mencion.gexf')
-    with open('mencion.json', 'w') as file:
-        json.dump(menciones_json, file, indent=4)
+    if 'retweets_json' in resultados:    
+        with open('rt.json', 'w') as file:
+            json.dump(resultados['retweets_json'], file, indent=4)
 
-    nx.write_gexf(grafo_corretweets, 'corrtw.gexf')
-    with open('corrtw.json', 'w') as file:
-        json.dump(corretweets_json, file, indent=4)
+    if 'grafo_menciones' in resultados:
+        nx.write_gexf(resultados['grafo_menciones'], 'mencion.gexf')
+
+    if 'menciones_json' in resultados:    
+        with open('mencion.json', 'w') as file:
+            json.dump(resultados['menciones_json'], file, indent=4)
+    
+    if 'grafo_corretweets' in resultados:
+        nx.write_gexf(resultados['grafo_corretweets'], 'corrtw.gexf')
+
+    if 'corretweets_json' in resultados:    
+        with open('corrtw.json', 'w') as file:
+            json.dump(resultados['corretweets_json'], file, indent=4)
 
 
 
