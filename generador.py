@@ -127,9 +127,12 @@ def finalizar_json_corretweets(retweeters_por_autor):
     return json_structure
 
 #------Descomprimir archivos-------
-def descomprimir_tweets(directory, start_date_str, end_date_str,hashtag_file=None):
-    start_date = datetime.strptime(start_date_str, "%d-%m-%y")
-    end_date = datetime.strptime(end_date_str, "%d-%m-%y")
+def descomprimir_tweets_mpi(directory, start_date, end_date, hashtag_file=None):
+    # Assuming `rank` and `size` are the rank and size of the MPI processes
+    global rank, size
+
+    start_date = datetime.strptime(start_date, "%d-%m-%y")
+    end_date = datetime.strptime(end_date, "%d-%m-%y")
 
     hashtags = set()
     if hashtag_file:
@@ -137,6 +140,8 @@ def descomprimir_tweets(directory, start_date_str, end_date_str,hashtag_file=Non
             for line in file:
                 hashtags.add(line.strip().lower())
 
+    all_files = []
+    # Collect all bz2 files
     for year in os.listdir(directory):
         year_path = os.path.join(directory, year)
         if os.path.isdir(year_path):
@@ -149,16 +154,19 @@ def descomprimir_tweets(directory, start_date_str, end_date_str,hashtag_file=Non
                             for hour in os.listdir(day_path):
                                 hour_path = os.path.join(day_path, hour)
                                 if os.path.isdir(hour_path):
-                                    current_date = datetime(year=int(year), month=int(month), day=int(day))
-                                    if start_date <= current_date <= end_date:
-                                        for file in os.listdir(hour_path):
-                                            if file.endswith('.bz2'):
-                                                file_path = os.path.join(hour_path, file)
-                                                with bz2.BZ2File(file_path, 'rb') as f:
-                                                    for line in f:
-                                                        tweet = json.loads(line)
-                                                        if not hashtags or any(hashtag['text'] in hashtags for hashtag in tweet.get('entities', {}).get('hashtags', [])):
-                                                            yield tweet
+                                    for file in os.listdir(hour_path):
+                                        if file.endswith('.bz2'):
+                                            all_files.append(os.path.join(hour_path, file))
+
+    # Distribute files across MPI processes
+    files_for_process = all_files[rank::size]
+
+    for file_path in files_for_process:
+        with bz2.BZ2File(file_path, 'rb') as f:
+            for line in f:
+                tweet = json.loads(line)
+                if not hashtags or any(hashtag['text'].lower() in hashtags for hashtag in tweet.get('entities', {}).get('hashtags', [])):
+                    yield tweet
 
 
 #--------------------Main-------------------------------------------------
